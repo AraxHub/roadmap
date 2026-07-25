@@ -1,0 +1,14 @@
+app.log
+coverage.out
+coverage.html
+*.exe
+*.test
+.idea/
+.vscode/
+deployment/roadmap-local/.env
+deployment/k3s/secrets.env
+deployment/postgres/.env
+.env
+.env.*
+!.env.example
+!**/.env.example

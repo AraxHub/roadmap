@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS feedback_schedule;
+DROP TABLE IF EXISTS feedback_requests;
+DROP TABLE IF EXISTS user_sprint_timers;
+DROP TABLE IF EXISTS user_submodule_progress;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS submodule_contents;
+DROP TABLE IF EXISTS submodules;
+DROP TABLE IF EXISTS modules;
+DROP TABLE IF EXISTS sprints;

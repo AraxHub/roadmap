@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: roadmap
+  namespace: roadmap
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Telegram webhook + cookie / uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        # REPLACE with your real domain before apply.
+        - roadmap.example.ru
+      secretName: roadmap-tls
+  rules:
+    - host: roadmap.example.ru
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: roadmap-api
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: roadmap-frontend
+                port:
+                  number: 80

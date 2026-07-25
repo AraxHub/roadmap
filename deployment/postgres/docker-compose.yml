@@ -1,0 +1,37 @@
+# Shared PostgreSQL on the VPS host (outside k3s).
+# Both voco and roadmap connect here as separate DBs / users.
+#
+# Usage (on VPS):
+#   cp .env.example .env   # fill passwords
+#   docker compose up -d
+#
+# From k3s pods: host.k3s.internal:5432
+# Firewall: do NOT expose 5432 to the public internet.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: shared-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in .env}
+      # Bootstrap DB; app DBs are created by init script.
+      POSTGRES_DB: postgres
+      ROADMAP_DB_PASSWORD: ${ROADMAP_DB_PASSWORD:?set ROADMAP_DB_PASSWORD in .env}
+      VOCO_DB_PASSWORD: ${VOCO_DB_PASSWORD:-}
+    ports:
+      # Listen on all host interfaces so k3s pods can reach via host.k3s.internal.
+      # Restrict with host firewall (ufw/iptables): allow only localhost + pod CIDR.
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

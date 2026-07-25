@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roadmap-api
+  namespace: roadmap
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          envFrom:
+            - configMapRef:
+                name: roadmap-api-env
+            - secretRef:
+                name: roadmap-secrets

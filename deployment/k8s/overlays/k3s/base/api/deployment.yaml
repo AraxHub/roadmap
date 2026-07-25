@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roadmap-api
+  namespace: roadmap
+spec:
+  replicas: 1
+  # Single replica: in-process migrations + Telegram feedback worker.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: roadmap-api
+  template:
+    metadata:
+      labels:
+        app: roadmap-api
+    spec:
+      containers:
+        - name: api
+          image: roadmap-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyness
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

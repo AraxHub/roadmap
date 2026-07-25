@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: roadmap
+
+resources:
+  - base/namespace.yaml
+  - base/api/deployment.yaml
+  - base/api/service.yaml
+  - base/frontend/deployment.yaml
+  - base/frontend/service.yaml
+  - base/ingress.yaml
+  - api-configmap.yaml
+
+patches:
+  - path: patch-api-env.yaml
