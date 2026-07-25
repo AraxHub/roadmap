@@ -13,3 +13,10 @@ spec:
                 name: roadmap-api-env
             - secretRef:
                 name: roadmap-secrets
+          env:
+            # Host Docker Postgres: IP ноды, на которой крутится под (single-node k3s).
+            # Надёжнее, чем host.k3s.internal — его нет на всех версиях k3s.
+            - name: ROADMAP_DB_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP

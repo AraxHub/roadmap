@@ -33,8 +33,8 @@ docker compose up -d
 docker compose ps
 ```
 
-Из подов k3s БД доступна как `host.k3s.internal:5432`
-(это уже прописано в ConfigMap).
+Из подов k3s БД доступна на IP ноды (`status.hostIP:5432`) —
+это прописано в Deployment через `fieldRef`, без `host.k3s.internal`.
 
 Проверка с ноды:
 

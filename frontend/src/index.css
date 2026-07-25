@@ -361,6 +361,26 @@
   font-family: var(--font-display);
   margin: 1.4em 0 0.5em;
   line-height: 1.2;
+  font-weight: 800;
+  color: var(--color-ink);
+}
+
+.md-body h1 {
+  font-size: 2rem;
+}
+
+.md-body h2 {
+  font-size: 1.5rem;
+}
+
+.md-body h3 {
+  font-size: 1.25rem;
+}
+
+.md-body h1:first-child,
+.md-body h2:first-child,
+.md-body h3:first-child {
+  margin-top: 0;
 }
 
 .md-body p,
