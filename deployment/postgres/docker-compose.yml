@@ -21,8 +21,11 @@ services:
       ROADMAP_DB_PASSWORD: ${ROADMAP_DB_PASSWORD:?set ROADMAP_DB_PASSWORD in .env}
       VOCO_DB_PASSWORD: ${VOCO_DB_PASSWORD:-}
     ports:
-      # Listen on all host interfaces so k3s pods can reach via host.k3s.internal.
-      # Restrict with host firewall (ufw/iptables): allow only localhost + pod CIDR.
+      # Published on all interfaces so k3s pods can reach NodeIP:5432.
+      # MUST block public access via host firewall (DOCKER-USER), not via
+      # binding 127.0.0.1 alone — that breaks pod → hostIP connectivity.
+      # On VPS (already applied / persist with netfilter-persistent):
+      #   iptables -I DOCKER-USER -i eth0 -p tcp --dport 5432 -j DROP
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data

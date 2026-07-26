@@ -410,12 +410,74 @@
   padding: 1rem 1.1rem;
   border-radius: 12px;
   overflow-x: auto;
+  margin: 0 0 1rem;
 }
 
-.md-body pre code {
-  background: transparent;
+.md-body pre:last-child {
+  margin-bottom: 0;
+}
+
+/* Adjacent fenced blocks — visible gap between them */
+.md-body pre + pre {
+  margin-top: 0.85rem;
+}
+
+.md-body pre code,
+.md-body pre code.hljs {
+  background: transparent !important;
   color: inherit;
   padding: 0;
+  display: block;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* GoLand-ish accents on top of atom-one-dark */
+.md-body pre .hljs-keyword,
+.md-body pre .hljs-selector-tag,
+.md-body pre .hljs-built_in {
+  color: #cc7832;
+  font-weight: 600;
+}
+
+.md-body pre .hljs-type,
+.md-body pre .hljs-class .hljs-title {
+  color: #ffc66d;
+}
+
+.md-body pre .hljs-string,
+.md-body pre .hljs-meta .hljs-string {
+  color: #6a8759;
+}
+
+.md-body pre .hljs-comment,
+.md-body pre .hljs-quote {
+  color: #808080;
+  font-style: italic;
+}
+
+.md-body pre .hljs-number,
+.md-body pre .hljs-literal {
+  color: #6897bb;
+}
+
+.md-body pre .hljs-title,
+.md-body pre .hljs-title.function_ {
+  color: #ffc66d;
+}
+
+.md-body pre .hljs-params,
+.md-body pre .hljs-variable,
+.md-body pre .hljs-attr {
+  color: #a9b7c6;
+}
+
+.md-body pre .hljs-meta,
+.md-body pre .hljs-meta-keyword {
+  color: #bbb529;
 }
 
 .md-body a {
