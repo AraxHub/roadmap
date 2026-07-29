@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { completeSubmodule, getSubmodule } from '@/api/client'
 import type { MenuItem, SubmoduleView } from '@/api/types'
+import { ContentBlocks } from '@/components/ContentBlocks'
 import { ElectricField } from '@/components/ElectricField'
-import { Markdown } from '@/components/Markdown'
 
 function MenuTree({
   items,
@@ -129,7 +129,7 @@ export function SubmodulePage() {
               </p>
               <h1 className="mt-2 font-display text-4xl font-extrabold">{data.submodule.title}</h1>
               <div className="mt-8 rounded-3xl border border-line bg-surface/90 p-6 sm:p-8">
-                <Markdown source={data.body_md} />
+                <ContentBlocks blocks={data.blocks || []} />
               </div>
 
               <div className="mt-8 flex flex-wrap items-center gap-3">

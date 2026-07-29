@@ -20,16 +20,22 @@ type UseCase interface {
 	Complete(ctx context.Context, userID, submoduleID string) error
 }
 
+// ImageStore — отдача картинок контента.
+type ImageStore interface {
+	GetImage(ctx context.Context, imageID string) (*domain.ContentImage, error)
+}
+
 // Controller — HTTP API роадмапа.
 type Controller struct {
 	uc     UseCase
+	images ImageStore
 	authMW gin.HandlerFunc
 	log    *slog.Logger
 }
 
 // New создаёт контроллер.
-func New(uc UseCase, authMW gin.HandlerFunc, log *slog.Logger) *Controller {
-	return &Controller{uc: uc, authMW: authMW, log: log}
+func New(uc UseCase, images ImageStore, authMW gin.HandlerFunc, log *slog.Logger) *Controller {
+	return &Controller{uc: uc, images: images, authMW: authMW, log: log}
 }
 
 // RegisterRoutes регистрирует защищённые маршруты.
@@ -40,6 +46,7 @@ func (c *Controller) RegisterRoutes(r *gin.Engine) {
 	api.GET("/modules/:moduleSlug", c.modulePage)
 	api.GET("/modules/:moduleSlug/submodules/:submoduleSlug", c.submodulePage)
 	api.POST("/submodules/:submoduleID/complete", c.complete)
+	api.GET("/content-images/:id", c.getImage)
 }
 
 func (c *Controller) home(ctx *gin.Context) {
@@ -100,6 +107,20 @@ func (c *Controller) complete(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"status": "completed"})
+}
+
+func (c *Controller) getImage(ctx *gin.Context) {
+	if _, ok := middlewares.UserID(ctx); !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": domain.ErrUnauthorized.Error()})
+		return
+	}
+	img, err := c.images.GetImage(ctx.Request.Context(), ctx.Param("id"))
+	if err != nil {
+		c.writeErr(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, max-age=3600")
+	ctx.Data(http.StatusOK, img.MimeType, img.Bytes)
 }
 
 func (c *Controller) writeErr(ctx *gin.Context, err error) {

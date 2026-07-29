@@ -59,10 +59,15 @@ export type MenuItem = {
   children?: MenuItem[]
 }
 
+export type ContentBlock =
+  | { id: string; type: 'markdown'; md: string }
+  | { id: string; type: 'answer'; md: string; title?: string }
+  | { id: string; type: 'image'; image_id: string; alt?: string }
+
 export type SubmoduleView = {
   submodule: SubmoduleAccess
   module: ModuleAccess
-  body_md: string
+  blocks: ContentBlock[]
   menu: MenuItem[]
 }
 
@@ -114,6 +119,12 @@ export type AdminUser = {
   is_blocked: boolean
   telegram_linked: boolean
   created_at: string
+  stage_status: 'in_progress' | 'completed' | 'empty'
+  current_stage?: {
+    sprint_title: string
+    module_title: string
+    submodule_title: string
+  }
 }
 
 export type FeedbackItem = {

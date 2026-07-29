@@ -53,16 +53,16 @@ type TimerStore interface {
 
 // UseCase — бизнес-логика роадмапа: страницы, unlock, complete, таймеры.
 type UseCase struct {
-	sprints     SprintStore
-	modules     ModuleStore
-	subs        SubmoduleStore
-	contents    SubmoduleContentStore
-	users       UserStore
-	progress    ProgressStore
-	timers      TimerStore
-	duration    time.Duration
-	tgBotName   string
-	log         *slog.Logger
+	sprints   SprintStore
+	modules   ModuleStore
+	subs      SubmoduleStore
+	contents  SubmoduleContentStore
+	users     UserStore
+	progress  ProgressStore
+	timers    TimerStore
+	duration  time.Duration
+	tgBotName string
+	log       *slog.Logger
 }
 
 // New создаёт use case.
@@ -156,8 +156,8 @@ type MenuItem struct {
 
 // SubmoduleView — страница контента подмодуля.
 type SubmoduleView struct {
-	Submodule SubmoduleAccess `json:"submodule"`
-	Module    ModuleAccess    `json:"module"`
-	BodyMD    string          `json:"body_md"`
-	Menu      []MenuItem      `json:"menu"`
+	Submodule SubmoduleAccess       `json:"submodule"`
+	Module    ModuleAccess          `json:"module"`
+	Blocks    []domain.ContentBlock `json:"blocks"`
+	Menu      []MenuItem            `json:"menu"`
 }

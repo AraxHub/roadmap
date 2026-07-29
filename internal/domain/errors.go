@@ -12,4 +12,5 @@ var (
 	ErrInvalidToken       = errors.New("invalid token")
 	ErrLoginTaken         = errors.New("login already taken")
 	ErrConflict           = errors.New("conflict")
+	ErrInvalidInput       = errors.New("invalid input")
 )

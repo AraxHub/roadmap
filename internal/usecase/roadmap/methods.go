@@ -209,7 +209,7 @@ func (u *UseCase) SubmodulePage(ctx context.Context, userID, moduleSlug, submodu
 	content, err := u.contents.GetBySubmoduleID(ctx, sm.ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			content = &domain.SubmoduleContent{SubmoduleID: sm.ID, BodyMD: ""}
+			content = &domain.SubmoduleContent{SubmoduleID: sm.ID, Blocks: []domain.ContentBlock{}}
 		} else {
 			return nil, err
 		}
@@ -230,7 +230,7 @@ func (u *UseCase) SubmodulePage(ctx context.Context, userID, moduleSlug, submodu
 			Description: m.Description,
 			Unlocked:    true,
 		},
-		BodyMD: content.BodyMD,
+		Blocks: content.Blocks,
 		Menu:   buildMenu(chain, unlocked, completed),
 	}, nil
 }

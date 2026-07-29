@@ -64,6 +64,33 @@ func (r *UserSubmoduleProgressRepo) ListCompletedSubmoduleIDs(ctx context.Contex
 	return out, rows.Err()
 }
 
+// ListAllCompletedByUser возвращает завершённые подмодули по всем пользователям.
+func (r *UserSubmoduleProgressRepo) ListAllCompletedByUser(ctx context.Context) (map[string]map[string]bool, error) {
+	q := "SELECT " + UserSubmoduleProgressColUserID + ", " + UserSubmoduleProgressColSubmoduleID +
+		" FROM " + UserSubmoduleProgressTable
+
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]map[string]bool)
+	for rows.Next() {
+		var userID, submoduleID string
+		if err := rows.Scan(&userID, &submoduleID); err != nil {
+			return nil, err
+		}
+		m := out[userID]
+		if m == nil {
+			m = make(map[string]bool)
+			out[userID] = m
+		}
+		m[submoduleID] = true
+	}
+	return out, rows.Err()
+}
+
 // Complete фиксирует завершение подмодуля (идемпотентно).
 func (r *UserSubmoduleProgressRepo) Complete(ctx context.Context, userID, submoduleID string) error {
 	q := "INSERT INTO " + UserSubmoduleProgressTable +

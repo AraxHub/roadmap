@@ -3,6 +3,7 @@ import {
   createModule,
   createSprint,
   createSubmodule,
+  deleteContentImage,
   deleteModule,
   deleteSprint,
   deleteSubmodule,
@@ -12,16 +13,37 @@ import {
   updateModule,
   updateSprint,
   updateSubmodule,
+  uploadSubmoduleImage,
   uploadSubmoduleMarkdown,
 } from '@/api/client'
-import type { AdminTree } from '@/api/types'
+import type { AdminTree, ContentBlock } from '@/api/types'
 import { AppShell } from '@/components/AppShell'
+import { AuthImage } from '@/components/AuthImage'
 import { ElectricField } from '@/components/ElectricField'
+import { blockRefMarker, collectReferencedBlockIds } from '@/components/Markdown'
+
+function newBlockId() {
+  return crypto.randomUUID()
+}
+
+function insertAfter(
+  blocks: ContentBlock[],
+  selectedId: string | null,
+  block: ContentBlock,
+): ContentBlock[] {
+  if (!selectedId) return [...blocks, block]
+  const idx = blocks.findIndex((b) => b.id === selectedId)
+  if (idx < 0) return [...blocks, block]
+  const next = [...blocks]
+  next.splice(idx + 1, 0, block)
+  return next
+}
 
 export function AdminRoadmapPage() {
   const [tree, setTree] = useState<AdminTree | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const [sprintTitle, setSprintTitle] = useState('')
 
@@ -33,7 +55,10 @@ export function AdminRoadmapPage() {
   const [subBody, setSubBody] = useState('')
 
   const [editSubId, setEditSubId] = useState<string | null>(null)
-  const [editBody, setEditBody] = useState('')
+  const [editBlocks, setEditBlocks] = useState<ContentBlock[]>([])
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
+
+  const referenced = collectReferencedBlockIds(editBlocks)
 
   const reload = useCallback(async () => {
     const data = await getAdminTree()
@@ -102,25 +127,116 @@ export function AdminRoadmapPage() {
   async function openEditor(subId: string) {
     setEditSubId(subId)
     const c = await getSubmoduleContent(subId)
-    setEditBody(c.body_md || '')
+    const blocks = c.blocks || []
+    setEditBlocks(blocks)
+    setSelectedBlockId(blocks[0]?.id ?? null)
+    setCopiedId(null)
   }
 
   async function saveEditor() {
     if (!editSubId) return
     await run(async () => {
-      await putSubmoduleContent(editSubId, editBody)
+      await putSubmoduleContent(editSubId, editBlocks)
     })
   }
 
   async function onUpload(subId: string, file: File | null) {
     if (!file) return
     await run(async () => {
-      await uploadSubmoduleMarkdown(subId, file)
+      const c = await uploadSubmoduleMarkdown(subId, file)
       if (editSubId === subId) {
-        const c = await getSubmoduleContent(subId)
-        setEditBody(c.body_md || '')
+        setEditBlocks(c.blocks || [])
+        setSelectedBlockId(c.blocks?.[0]?.id ?? null)
       }
     })
+  }
+
+  function addMarkdownBlock() {
+    const block: ContentBlock = { id: newBlockId(), type: 'markdown', md: '' }
+    setEditBlocks((prev) => insertAfter(prev, selectedBlockId, block))
+    setSelectedBlockId(block.id)
+  }
+
+  function addAnswerBlock() {
+    const block: ContentBlock = { id: newBlockId(), type: 'answer', md: '', title: 'Ответ' }
+    setEditBlocks((prev) => insertAfter(prev, selectedBlockId, block))
+    setSelectedBlockId(block.id)
+  }
+
+  async function addImageBlock(file: File | null) {
+    if (!file || !editSubId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const uploaded = await uploadSubmoduleImage(editSubId, file)
+      const block: ContentBlock = {
+        id: newBlockId(),
+        type: 'image',
+        image_id: uploaded.id,
+        alt: '',
+      }
+      setEditBlocks((prev) => insertAfter(prev, selectedBlockId, block))
+      setSelectedBlockId(block.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки картинки')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copyBlockMarker(blockId: string) {
+    const marker = blockRefMarker(blockId)
+    try {
+      await navigator.clipboard.writeText(marker)
+      setCopiedId(blockId)
+      window.setTimeout(() => setCopiedId((id) => (id === blockId ? null : id)), 2000)
+    } catch {
+      setError('Не удалось скопировать — скопируй маркер вручную: ' + marker)
+    }
+  }
+
+  function moveBlock(id: string, dir: -1 | 1) {
+    setEditBlocks((prev) => {
+      const idx = prev.findIndex((b) => b.id === id)
+      const nextIdx = idx + dir
+      if (idx < 0 || nextIdx < 0 || nextIdx >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(idx, 1)
+      next.splice(nextIdx, 0, item)
+      return next
+    })
+  }
+
+  async function removeBlock(id: string) {
+    const block = editBlocks.find((b) => b.id === id)
+    if (!block) return
+    if (block.type === 'image' && block.image_id) {
+      try {
+        await deleteContentImage(block.image_id)
+      } catch {
+        // блок всё равно уберём из редактора
+      }
+    }
+    setEditBlocks((prev) => prev.filter((b) => b.id !== id))
+    if (selectedBlockId === id) setSelectedBlockId(null)
+  }
+
+  function updateBlockMD(id: string, md: string) {
+    setEditBlocks((prev) =>
+      prev.map((b) => (b.id === id && (b.type === 'markdown' || b.type === 'answer') ? { ...b, md } : b)),
+    )
+  }
+
+  function updateAnswerTitle(id: string, title: string) {
+    setEditBlocks((prev) =>
+      prev.map((b) => (b.id === id && b.type === 'answer' ? { ...b, title } : b)),
+    )
+  }
+
+  function updateBlockAlt(id: string, alt: string) {
+    setEditBlocks((prev) =>
+      prev.map((b) => (b.id === id && b.type === 'image' ? { ...b, alt } : b)),
+    )
   }
 
   const allModules =
@@ -132,7 +248,7 @@ export function AdminRoadmapPage() {
       <AppShell title="Наполнение">
         <h1 className="font-display text-4xl font-extrabold">Роадмап</h1>
         <p className="mt-2 text-muted">
-          Создавай спринты → модули → подмодули, заливай MD и публикуй.
+          Создавай спринты → модули → подмодули, редактируй контент блоками и публикуй.
         </p>
         {error ? <p className="mt-4 text-danger">{error}</p> : null}
 
@@ -212,7 +328,7 @@ export function AdminRoadmapPage() {
             />
             <textarea
               className="h-28 w-full rounded-xl border border-line bg-bg px-3 py-2 font-mono text-sm"
-              placeholder="# Markdown контент…"
+              placeholder="# Начальный Markdown (опционально)…"
               value={subBody}
               onChange={(e) => setSubBody(e.target.value)}
             />
@@ -330,7 +446,7 @@ export function AdminRoadmapPage() {
                               className="btn btn-secondary btn-sm"
                               onClick={() => void openEditor(sm.id)}
                             >
-                              MD
+                              Контент
                             </button>
                             <label className="btn btn-ghost btn-sm">
                               .md файл
@@ -348,14 +464,12 @@ export function AdminRoadmapPage() {
                               className="btn btn-ghost btn-sm"
                               onClick={() =>
                                 void run(async () => {
-                                  const c = await getSubmoduleContent(sm.id)
                                   await updateSubmodule(sm.id, {
                                     module_id: sm.module_id,
                                     title: sm.title,
                                     slug: sm.slug,
                                     position: sm.position,
                                     is_published: !sm.is_published,
-                                    body_md: c.body_md,
                                   })
                                 })
                               }
@@ -385,15 +499,156 @@ export function AdminRoadmapPage() {
         </section>
 
         {editSubId ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
-            <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-electric/30 bg-surface p-5">
-              <h3 className="font-display text-xl font-bold">Редактор Markdown</h3>
-              <textarea
-                className="mt-3 min-h-[50vh] flex-1 rounded-xl border border-line bg-bg p-3 font-mono text-sm"
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-              />
-              <div className="mt-4 flex gap-2">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-3 backdrop-blur-sm sm:p-6">
+            <div className="flex h-[80vh] w-[80vw] max-w-none flex-col rounded-2xl border border-electric/30 bg-surface p-5 sm:p-6">
+              <h3 className="font-display text-xl font-bold">Редактор контента</h3>
+              <p className="mt-1 shrink-0 text-sm text-muted">
+                Ученику видны только блоки «Текст». Ответ и картинку: «Скопировать» → вставь Ctrl+V
+                в нужное место MD. Пока маркер не вставлен — на уроке блок не показывается.
+              </p>
+
+              <div className="mt-3 flex shrink-0 flex-wrap gap-2">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={addMarkdownBlock}>
+                  Добавить текст (MD)
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={addAnswerBlock}>
+                  Добавить скрытый материал
+                </button>
+                <label className="btn btn-secondary btn-sm">
+                  Добавить изображение
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      void addImageBlock(e.target.files?.[0] ?? null)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                {editBlocks.length === 0 ? (
+                  <p className="text-sm text-muted">Пока пусто — добавь блок кнопками выше.</p>
+                ) : null}
+                {editBlocks.map((block, index) => {
+                  const selected = selectedBlockId === block.id
+                  const isCanvas = block.type === 'markdown'
+                  const isInserted = isCanvas || referenced.has(block.id)
+                  return (
+                    <div
+                      key={block.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedBlockId(block.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') setSelectedBlockId(block.id)
+                      }}
+                      className={`rounded-xl border p-3 ${
+                        selected ? 'border-electric/50 bg-electric-soft/40' : 'border-line bg-bg'
+                      }`}
+                    >
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                          {block.type === 'markdown'
+                            ? 'Текст'
+                            : block.type === 'answer'
+                              ? 'Скрытый материал'
+                              : 'Изображение'}{' '}
+                          · #{index + 1}
+                          {!isCanvas ? (
+                            <span
+                              className={`ml-2 normal-case tracking-normal ${
+                                isInserted ? 'text-ok' : 'text-danger'
+                              }`}
+                            >
+                              {isInserted ? '· вставлен' : '· не вставлен (скрыт на уроке)'}
+                            </span>
+                          ) : null}
+                        </span>
+                        <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => void copyBlockMarker(block.id)}
+                          >
+                            {copiedId === block.id ? 'Скопировано' : 'Скопировать'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={index === 0}
+                            onClick={() => moveBlock(block.id, -1)}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={index === editBlocks.length - 1}
+                            onClick={() => moveBlock(block.id, 1)}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => void removeBlock(block.id)}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+
+                      {block.type === 'markdown' || block.type === 'answer' ? (
+                        <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                          {block.type === 'answer' ? (
+                            <label className="block text-xs text-muted">
+                              Название спойлера
+                              <input
+                                className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink"
+                                value={block.title ?? 'Ответ'}
+                                placeholder="Ответ"
+                                onChange={(e) => updateAnswerTitle(block.id, e.target.value)}
+                              />
+                            </label>
+                          ) : null}
+                          <textarea
+                            className="min-h-[280px] w-full resize-y rounded-lg border border-line bg-surface p-3 font-mono text-sm leading-relaxed"
+                            value={block.md}
+                            placeholder={
+                              block.type === 'answer'
+                                ? 'Markdown ответа…'
+                                : 'Markdown полотна… Вставляй сюда {{block:…}} через Ctrl+V'
+                            }
+                            onChange={(e) => updateBlockMD(block.id, e.target.value)}
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                          <AuthImage
+                            imageId={block.image_id}
+                            alt={block.alt || ''}
+                            className="max-h-48 w-full rounded-lg object-contain"
+                          />
+                          <input
+                            className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
+                            placeholder="Подпись (alt)"
+                            value={block.alt || ''}
+                            onChange={(e) => updateBlockAlt(block.id, e.target.value)}
+                          />
+                        </div>
+                      )}
+                      {!isCanvas ? (
+                        <p className="mt-2 font-mono text-xs text-muted">{blockRefMarker(block.id)}</p>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 flex shrink-0 gap-2">
                 <button
                   type="button"
                   disabled={busy}

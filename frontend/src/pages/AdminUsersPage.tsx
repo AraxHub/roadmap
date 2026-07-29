@@ -288,11 +288,20 @@ export function AdminUsersPage() {
                       selected?.id === u.id ? 'border-electric/40 bg-electric-soft/70' : ''
                     }`}
                   >
-                    <span>
+                    <span className="min-w-0">
                       <span className="font-medium">{u.login}</span>
                       <span className="ml-2 text-xs text-muted">{u.role}</span>
+                      {u.role === 'user' ? (
+                        <span className="mt-0.5 block truncate text-xs text-muted">
+                          {u.stage_status === 'completed'
+                            ? 'Завершён'
+                            : u.stage_status === 'in_progress' && u.current_stage
+                              ? `${u.current_stage.sprint_title} · ${u.current_stage.module_title} · ${u.current_stage.submodule_title}`
+                              : 'Нет опубликованного курса'}
+                        </span>
+                      ) : null}
                     </span>
-                    <span className="text-xs text-muted">
+                    <span className="shrink-0 text-xs text-muted">
                       {u.is_blocked ? 'блок' : u.telegram_linked ? 'TG' : '—'}
                     </span>
                   </button>

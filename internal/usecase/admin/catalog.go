@@ -2,9 +2,13 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 	"unicode"
 
 	"roadmap/internal/domain"
@@ -36,7 +40,14 @@ type SubmoduleStore interface {
 
 type ContentStore interface {
 	GetBySubmoduleID(ctx context.Context, submoduleID string) (*domain.SubmoduleContent, error)
-	Upsert(ctx context.Context, submoduleID, bodyMD string) (*domain.SubmoduleContent, error)
+	Upsert(ctx context.Context, submoduleID string, blocks []domain.ContentBlock) (*domain.SubmoduleContent, error)
+}
+
+type ImageStore interface {
+	Create(ctx context.Context, submoduleID, mimeType string, data []byte) (*domain.ContentImage, error)
+	GetByID(ctx context.Context, id string) (*domain.ContentImage, error)
+	ExistsForSubmodule(ctx context.Context, imageID, submoduleID string) (bool, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // UseCase — админ-конфиг роадмапа.
@@ -45,11 +56,22 @@ type UseCase struct {
 	modules  ModuleStore
 	subs     SubmoduleStore
 	contents ContentStore
+	images   ImageStore
 	log      *slog.Logger
 }
 
-func New(sprints SprintStore, modules ModuleStore, subs SubmoduleStore, contents ContentStore, log *slog.Logger) *UseCase {
-	return &UseCase{sprints: sprints, modules: modules, subs: subs, contents: contents, log: log}
+func New(
+	sprints SprintStore,
+	modules ModuleStore,
+	subs SubmoduleStore,
+	contents ContentStore,
+	images ImageStore,
+	log *slog.Logger,
+) *UseCase {
+	return &UseCase{
+		sprints: sprints, modules: modules, subs: subs,
+		contents: contents, images: images, log: log,
+	}
 }
 
 type TreeSubmodule struct {
@@ -164,12 +186,13 @@ func (u *UseCase) DeleteModule(ctx context.Context, id string) error {
 }
 
 type SubmoduleInput struct {
-	ModuleID    string `json:"module_id"`
-	Slug        string `json:"slug"`
-	Title       string `json:"title"`
-	Position    int    `json:"position"`
-	IsPublished bool   `json:"is_published"`
-	BodyMD      string `json:"body_md"`
+	ModuleID    string                `json:"module_id"`
+	Slug        string                `json:"slug"`
+	Title       string                `json:"title"`
+	Position    int                   `json:"position"`
+	IsPublished bool                  `json:"is_published"`
+	Blocks      []domain.ContentBlock `json:"blocks"`
+	BodyMD      string                `json:"body_md"` // legacy: один markdown-блок при создании
 }
 
 func (u *UseCase) CreateSubmodule(ctx context.Context, in SubmoduleInput) (*domain.Submodule, error) {
@@ -185,7 +208,19 @@ func (u *UseCase) CreateSubmodule(ctx context.Context, in SubmoduleInput) (*doma
 	if err != nil {
 		return nil, err
 	}
-	if _, err := u.contents.Upsert(ctx, sm.ID, in.BodyMD); err != nil {
+	blocks := in.Blocks
+	if len(blocks) == 0 && strings.TrimSpace(in.BodyMD) != "" {
+		blocks = []domain.ContentBlock{{
+			ID:   newBlockID(),
+			Type: domain.BlockTypeMarkdown,
+			MD:   in.BodyMD,
+		}}
+	}
+	normalized, err := u.normalizeBlocks(ctx, sm.ID, blocks)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := u.contents.Upsert(ctx, sm.ID, normalized); err != nil {
 		return nil, err
 	}
 	return sm, nil
@@ -193,17 +228,10 @@ func (u *UseCase) CreateSubmodule(ctx context.Context, in SubmoduleInput) (*doma
 
 func (u *UseCase) UpdateSubmodule(ctx context.Context, id string, in SubmoduleInput) (*domain.Submodule, error) {
 	slug := normalizeSlug(in.Slug, in.Title)
-	sm, err := u.subs.Update(ctx, domain.Submodule{
+	return u.subs.Update(ctx, domain.Submodule{
 		ID: id, ModuleID: in.ModuleID, Slug: slug, Title: in.Title,
 		Position: in.Position, IsPublished: in.IsPublished,
 	})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := u.contents.Upsert(ctx, sm.ID, in.BodyMD); err != nil {
-		return nil, err
-	}
-	return sm, nil
 }
 
 func (u *UseCase) DeleteSubmodule(ctx context.Context, id string) error {
@@ -214,15 +242,132 @@ func (u *UseCase) GetContent(ctx context.Context, submoduleID string) (*domain.S
 	c, err := u.contents.GetBySubmoduleID(ctx, submoduleID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return &domain.SubmoduleContent{SubmoduleID: submoduleID, BodyMD: ""}, nil
+			return &domain.SubmoduleContent{SubmoduleID: submoduleID, Blocks: []domain.ContentBlock{}}, nil
 		}
 		return nil, err
 	}
 	return c, nil
 }
 
-func (u *UseCase) PutContent(ctx context.Context, submoduleID, bodyMD string) (*domain.SubmoduleContent, error) {
-	return u.contents.Upsert(ctx, submoduleID, bodyMD)
+func (u *UseCase) PutContent(ctx context.Context, submoduleID string, blocks []domain.ContentBlock) (*domain.SubmoduleContent, error) {
+	normalized, err := u.normalizeBlocks(ctx, submoduleID, blocks)
+	if err != nil {
+		return nil, err
+	}
+	return u.contents.Upsert(ctx, submoduleID, normalized)
+}
+
+// PutMarkdownContent — загрузка .md файла как одного markdown-блока.
+func (u *UseCase) PutMarkdownContent(ctx context.Context, submoduleID, bodyMD string) (*domain.SubmoduleContent, error) {
+	blocks := []domain.ContentBlock{}
+	if strings.TrimSpace(bodyMD) != "" {
+		blocks = []domain.ContentBlock{{
+			ID:   newBlockID(),
+			Type: domain.BlockTypeMarkdown,
+			MD:   bodyMD,
+		}}
+	}
+	return u.PutContent(ctx, submoduleID, blocks)
+}
+
+type UploadedImage struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
+}
+
+func (u *UseCase) UploadImage(ctx context.Context, submoduleID, mimeType string, data []byte) (*UploadedImage, error) {
+	mimeType = strings.TrimSpace(strings.ToLower(mimeType))
+	if mimeType == "image/jpg" {
+		mimeType = "image/jpeg"
+	}
+	if !domain.AllowedContentImageMIME[mimeType] {
+		return nil, fmt.Errorf("%w: unsupported image type", domain.ErrInvalidInput)
+	}
+	if len(data) == 0 || len(data) > domain.MaxContentImageBytes {
+		return nil, fmt.Errorf("%w: image size must be 1..%d bytes", domain.ErrInvalidInput, domain.MaxContentImageBytes)
+	}
+	img, err := u.images.Create(ctx, submoduleID, mimeType, data)
+	if err != nil {
+		return nil, err
+	}
+	return &UploadedImage{
+		ID:  img.ID,
+		URL: ContentImageURL(img.ID),
+	}, nil
+}
+
+func (u *UseCase) DeleteImage(ctx context.Context, imageID string) error {
+	return u.images.Delete(ctx, imageID)
+}
+
+func (u *UseCase) GetImage(ctx context.Context, imageID string) (*domain.ContentImage, error) {
+	return u.images.GetByID(ctx, imageID)
+}
+
+// ContentImageURL — путь API для отдачи картинки.
+func ContentImageURL(imageID string) string {
+	return "/api/v1/content-images/" + imageID
+}
+
+func (u *UseCase) normalizeBlocks(ctx context.Context, submoduleID string, blocks []domain.ContentBlock) ([]domain.ContentBlock, error) {
+	if blocks == nil {
+		blocks = []domain.ContentBlock{}
+	}
+	out := make([]domain.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		id := strings.TrimSpace(b.ID)
+		if id == "" {
+			id = newBlockID()
+		}
+		switch b.Type {
+		case domain.BlockTypeMarkdown:
+			out = append(out, domain.ContentBlock{
+				ID:   id,
+				Type: b.Type,
+				MD:   b.MD,
+			})
+		case domain.BlockTypeAnswer:
+			title := strings.TrimSpace(b.Title)
+			out = append(out, domain.ContentBlock{
+				ID:    id,
+				Type:  b.Type,
+				MD:    b.MD,
+				Title: title,
+			})
+		case domain.BlockTypeImage:
+			imageID := strings.TrimSpace(b.ImageID)
+			if imageID == "" {
+				return nil, fmt.Errorf("%w: image block requires image_id", domain.ErrInvalidInput)
+			}
+			ok, err := u.images.ExistsForSubmodule(ctx, imageID, submoduleID)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("%w: image not found for submodule", domain.ErrInvalidInput)
+			}
+			out = append(out, domain.ContentBlock{
+				ID:      id,
+				Type:    domain.BlockTypeImage,
+				ImageID: imageID,
+				Alt:     b.Alt,
+			})
+		default:
+			return nil, fmt.Errorf("%w: unknown block type %q", domain.ErrInvalidInput, b.Type)
+		}
+	}
+	return out, nil
+}
+
+func newBlockID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("blk-%d", time.Now().UnixNano())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	hexed := hex.EncodeToString(b[:])
+	return hexed[0:8] + "-" + hexed[8:12] + "-" + hexed[12:16] + "-" + hexed[16:20] + "-" + hexed[20:32]
 }
 
 func normalizeSlug(slug, title string) string {

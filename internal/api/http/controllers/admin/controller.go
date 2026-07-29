@@ -32,7 +32,11 @@ type CatalogUC interface {
 	UpdateSubmodule(ctx context.Context, id string, in adminuc.SubmoduleInput) (*domain.Submodule, error)
 	DeleteSubmodule(ctx context.Context, id string) error
 	GetContent(ctx context.Context, submoduleID string) (*domain.SubmoduleContent, error)
-	PutContent(ctx context.Context, submoduleID, bodyMD string) (*domain.SubmoduleContent, error)
+	PutContent(ctx context.Context, submoduleID string, blocks []domain.ContentBlock) (*domain.SubmoduleContent, error)
+	PutMarkdownContent(ctx context.Context, submoduleID, bodyMD string) (*domain.SubmoduleContent, error)
+	UploadImage(ctx context.Context, submoduleID, mimeType string, data []byte) (*adminuc.UploadedImage, error)
+	DeleteImage(ctx context.Context, imageID string) error
+	GetImage(ctx context.Context, imageID string) (*domain.ContentImage, error)
 }
 
 // FeedbackUC — список юзеров и история ОС.
@@ -89,6 +93,8 @@ func (c *Controller) RegisterRoutes(r *gin.Engine) {
 	admin.GET("/submodules/:id/content", c.getContent)
 	admin.PUT("/submodules/:id/content", c.putContent)
 	admin.POST("/submodules/:id/content/upload", c.uploadContent)
+	admin.POST("/submodules/:id/images", c.uploadImage)
+	admin.DELETE("/content-images/:id", c.deleteImage)
 }
 
 type createUserRequest struct {
@@ -305,13 +311,13 @@ func (c *Controller) getContent(ctx *gin.Context) {
 
 func (c *Controller) putContent(ctx *gin.Context) {
 	var body struct {
-		BodyMD string `json:"body_md"`
+		Blocks []domain.ContentBlock `json:"blocks"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	content, err := c.catalog.PutContent(ctx.Request.Context(), ctx.Param("id"), body.BodyMD)
+	content, err := c.catalog.PutContent(ctx.Request.Context(), ctx.Param("id"), body.Blocks)
 	if err != nil {
 		c.writeErr(ctx, err)
 		return
@@ -336,12 +342,57 @@ func (c *Controller) uploadContent(ctx *gin.Context) {
 		c.writeErr(ctx, err)
 		return
 	}
-	content, err := c.catalog.PutContent(ctx.Request.Context(), ctx.Param("id"), string(data))
+	content, err := c.catalog.PutMarkdownContent(ctx.Request.Context(), ctx.Param("id"), string(data))
 	if err != nil {
 		c.writeErr(ctx, err)
 		return
 	}
 	ctx.JSON(http.StatusOK, content)
+}
+
+func (c *Controller) uploadImage(ctx *gin.Context) {
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
+		return
+	}
+	if file.Size > domain.MaxContentImageBytes {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "image too large (max 10MB)"})
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		c.writeErr(ctx, err)
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, domain.MaxContentImageBytes+1))
+	if err != nil {
+		c.writeErr(ctx, err)
+		return
+	}
+	if len(data) > domain.MaxContentImageBytes {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "image too large (max 10MB)"})
+		return
+	}
+	mime := file.Header.Get("Content-Type")
+	if mime == "" || mime == "application/octet-stream" {
+		mime = http.DetectContentType(data)
+	}
+	uploaded, err := c.catalog.UploadImage(ctx.Request.Context(), ctx.Param("id"), mime, data)
+	if err != nil {
+		c.writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, uploaded)
+}
+
+func (c *Controller) deleteImage(ctx *gin.Context) {
+	if err := c.catalog.DeleteImage(ctx.Request.Context(), ctx.Param("id")); err != nil {
+		c.writeErr(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (c *Controller) writeErr(ctx *gin.Context, err error) {
@@ -352,6 +403,8 @@ func (c *Controller) writeErr(ctx *gin.Context, err error) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrForbidden):
 		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrInvalidInput):
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.log.Error("admin failed", "error", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})

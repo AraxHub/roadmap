@@ -73,7 +73,7 @@ func (a *App) Run() error {
 		a.cfg.Telegram.BotUsername,
 		log,
 	)
-	catalogUC := adminuc.New(repo.Sprints, repo.Modules, repo.Submodules, repo.SubmoduleContents, log)
+	catalogUC := adminuc.New(repo.Sprints, repo.Modules, repo.Submodules, repo.SubmoduleContents, repo.ContentImages, log)
 
 	var tgClient *infrag.Client
 	var messenger feedbackuc.Messenger
@@ -82,7 +82,16 @@ func (a *App) Run() error {
 		messenger = tgClient
 	}
 	feedbackLoc := loadFeedbackLocation(a.cfg.Telegram.FeedbackTZ, log)
-	feedbackUC := feedbackuc.New(repo.Users, repo.FeedbackRequests, repo.FeedbackSchedule, messenger, feedbackLoc, log)
+	feedbackUC := feedbackuc.New(
+		repo.Users,
+		repo.FeedbackRequests,
+		repo.FeedbackSchedule,
+		repo.Submodules,
+		repo.UserSubmoduleProgress,
+		messenger,
+		feedbackLoc,
+		log,
+	)
 
 	authMW := middlewares.Auth(tokens)
 	adminMW := middlewares.RequireAdmin()
@@ -91,7 +100,7 @@ func (a *App) Run() error {
 	controllers := []apihttp.Controller{
 		system.New(db, log),
 		authctrl.New(authUC, a.cfg.Auth, authMW, log),
-		roadmapctrl.New(roadmapUC, authMW, log),
+		roadmapctrl.New(roadmapUC, catalogUC, authMW, log),
 		adminctrl.New(authUC, catalogUC, feedbackUC, authMW, adminMW, log),
 	}
 

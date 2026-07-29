@@ -13,6 +13,7 @@ type Repo struct {
 	Modules               *ModuleRepo
 	Submodules            *SubmoduleRepo
 	SubmoduleContents     *SubmoduleContentRepo
+	ContentImages         *ContentImageRepo
 	Users                 *UserRepo
 	RefreshTokens         *RefreshTokenRepo
 	UserSubmoduleProgress *UserSubmoduleProgressRepo
@@ -28,6 +29,7 @@ func NewRepo(db *infrapg.DB, log *slog.Logger) *Repo {
 		Modules:               NewModuleRepo(db, log),
 		Submodules:            NewSubmoduleRepo(db, log),
 		SubmoduleContents:     NewSubmoduleContentRepo(db, log),
+		ContentImages:         NewContentImageRepo(db, log),
 		Users:                 NewUserRepo(db, log),
 		RefreshTokens:         NewRefreshTokenRepo(db, log),
 		UserSubmoduleProgress: NewUserSubmoduleProgressRepo(db, log),

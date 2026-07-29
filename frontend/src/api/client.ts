@@ -9,6 +9,7 @@ import type {
   AdminUser,
   FeedbackItem,
   FeedbackSchedule,
+  ContentBlock,
 } from './types.ts'
 
 type TokenListener = (token: string | null) => void
@@ -264,6 +265,7 @@ export function createSubmodule(body: {
   position?: number
   is_published: boolean
   body_md?: string
+  blocks?: ContentBlock[]
 }) {
   return apiFetch('/api/v1/admin/submodules', { method: 'POST', body: JSON.stringify(body) })
 }
@@ -276,7 +278,6 @@ export function updateSubmodule(
     slug?: string
     position: number
     is_published: boolean
-    body_md?: string
   },
 ) {
   return apiFetch(`/api/v1/admin/submodules/${id}`, { method: 'PUT', body: JSON.stringify(body) })
@@ -287,15 +288,15 @@ export function deleteSubmodule(id: string) {
 }
 
 export function getSubmoduleContent(id: string) {
-  return apiFetch<{ submodule_id: string; body_md: string }>(
+  return apiFetch<{ submodule_id: string; blocks: ContentBlock[] }>(
     `/api/v1/admin/submodules/${id}/content`,
   )
 }
 
-export function putSubmoduleContent(id: string, body_md: string) {
+export function putSubmoduleContent(id: string, blocks: ContentBlock[]) {
   return apiFetch(`/api/v1/admin/submodules/${id}/content`, {
     method: 'PUT',
-    body: JSON.stringify({ body_md }),
+    body: JSON.stringify({ blocks }),
   })
 }
 
@@ -315,5 +316,48 @@ export async function uploadSubmoduleMarkdown(id: string, file: File) {
     const err = new Error((await res.json().catch(() => ({}))).error || res.statusText)
     throw err
   }
-  return res.json()
+  return res.json() as Promise<{ submodule_id: string; blocks: ContentBlock[] }>
+}
+
+export async function uploadSubmoduleImage(submoduleId: string, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const headers = new Headers()
+  const token = getAccessToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(`/api/v1/admin/submodules/${submoduleId}/images`, {
+    method: 'POST',
+    headers,
+    body: form,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const err = new Error((await res.json().catch(() => ({}))).error || res.statusText)
+    throw err
+  }
+  return res.json() as Promise<{ id: string; url: string }>
+}
+
+export function deleteContentImage(imageId: string) {
+  return apiFetch(`/api/v1/admin/content-images/${imageId}`, { method: 'DELETE' })
+}
+
+export function contentImagePath(imageId: string) {
+  return `/api/v1/content-images/${imageId}`
+}
+
+/** Загрузка картинки с Bearer (для img без Authorization). */
+export async function fetchContentImageBlob(imageId: string): Promise<string> {
+  const headers = new Headers()
+  const token = getAccessToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(contentImagePath(imageId), {
+    headers,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
 }

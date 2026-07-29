@@ -22,6 +22,16 @@ type UserStore interface {
 	SetBlocked(ctx context.Context, userID string, blocked bool) error
 }
 
+// ChainStore — опубликованная цепочка обучения.
+type ChainStore interface {
+	ListPublishedChain(ctx context.Context) ([]domain.ChainItem, error)
+}
+
+// ProgressStore — прогресс учеников.
+type ProgressStore interface {
+	ListAllCompletedByUser(ctx context.Context) (map[string]map[string]bool, error)
+}
+
 // RequestStore — просьбы об ОС.
 type RequestStore interface {
 	HasPending(ctx context.Context, userID string) (bool, error)
@@ -40,6 +50,8 @@ type UseCase struct {
 	users    UserStore
 	requests RequestStore
 	schedule ScheduleStore
+	chain    ChainStore
+	progress ProgressStore
 	tg       Messenger
 	loc      *time.Location
 	log      *slog.Logger
@@ -49,11 +61,23 @@ type UseCase struct {
 }
 
 // New создаёт use case. tg может быть nil, если бот выключен.
-func New(users UserStore, requests RequestStore, schedule ScheduleStore, tg Messenger, loc *time.Location, log *slog.Logger) *UseCase {
+func New(
+	users UserStore,
+	requests RequestStore,
+	schedule ScheduleStore,
+	chain ChainStore,
+	progress ProgressStore,
+	tg Messenger,
+	loc *time.Location,
+	log *slog.Logger,
+) *UseCase {
 	if loc == nil {
 		loc = time.FixedZone("MSK", 3*60*60)
 	}
-	return &UseCase{users: users, requests: requests, schedule: schedule, tg: tg, loc: loc, log: log}
+	return &UseCase{
+		users: users, requests: requests, schedule: schedule,
+		chain: chain, progress: progress, tg: tg, loc: loc, log: log,
+	}
 }
 
 // ScheduleInfo — состояние расписания авто-ОС для админки.
@@ -106,14 +130,23 @@ func (u *UseCase) messageText(ctx context.Context) (string, error) {
 	return u.schedule.GetMessageText(ctx)
 }
 
+// UserStage — текущий этап обучения (спринт / модуль / подмодуль).
+type UserStage struct {
+	SprintTitle    string `json:"sprint_title"`
+	ModuleTitle    string `json:"module_title"`
+	SubmoduleTitle string `json:"submodule_title"`
+}
+
 // UserListItem — пользователь в админ-списке.
 type UserListItem struct {
-	ID             string    `json:"id"`
-	Login          string    `json:"login"`
-	Role           string    `json:"role"`
-	IsBlocked      bool      `json:"is_blocked"`
-	TelegramLinked bool      `json:"telegram_linked"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             string     `json:"id"`
+	Login          string     `json:"login"`
+	Role           string     `json:"role"`
+	IsBlocked      bool       `json:"is_blocked"`
+	TelegramLinked bool       `json:"telegram_linked"`
+	CreatedAt      time.Time  `json:"created_at"`
+	StageStatus    string     `json:"stage_status"` // in_progress | completed | empty
+	CurrentStage   *UserStage `json:"current_stage,omitempty"`
 }
 
 // FeedbackItem — запись истории ОС.
@@ -125,24 +158,94 @@ type FeedbackItem struct {
 	AnswerText  string     `json:"answer_text"`
 }
 
-// ListUsers — список всех ЛК для админа.
+// ListUsers — список всех ЛК для админа с этапом обучения.
 func (u *UseCase) ListUsers(ctx context.Context) ([]UserListItem, error) {
 	users, err := u.users.List(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	var chain []domain.ChainItem
+	var completedByUser map[string]map[string]bool
+	if u.chain != nil {
+		chain, err = u.chain.ListPublishedChain(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if u.progress != nil {
+		completedByUser, err = u.progress.ListAllCompletedByUser(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if completedByUser == nil {
+		completedByUser = map[string]map[string]bool{}
+	}
+
 	out := make([]UserListItem, 0, len(users))
 	for _, usr := range users {
-		out = append(out, UserListItem{
+		item := UserListItem{
 			ID:             usr.ID,
 			Login:          usr.Login,
 			Role:           usr.Role,
 			IsBlocked:      usr.IsBlocked,
 			TelegramLinked: usr.HasTelegram(),
 			CreatedAt:      usr.CreatedAt,
-		})
+			StageStatus:    "empty",
+		}
+		if usr.Role == domain.RoleUser {
+			status, stage := resolveStage(chain, completedByUser[usr.ID])
+			item.StageStatus = status
+			item.CurrentStage = stage
+		}
+		out = append(out, item)
 	}
 	return out, nil
+}
+
+func resolveStage(chain []domain.ChainItem, completed map[string]bool) (string, *UserStage) {
+	if len(chain) == 0 {
+		return "empty", nil
+	}
+	if completed == nil {
+		completed = map[string]bool{}
+	}
+	unlocked := unlockedMap(chain, completed)
+	allDone := true
+	for _, item := range chain {
+		if !completed[item.SubmoduleID] {
+			allDone = false
+			break
+		}
+	}
+	if allDone {
+		return "completed", nil
+	}
+	for _, item := range chain {
+		if unlocked[item.SubmoduleID] && !completed[item.SubmoduleID] {
+			return "in_progress", &UserStage{
+				SprintTitle:    item.SprintTitle,
+				ModuleTitle:    item.ModuleTitle,
+				SubmoduleTitle: item.SubmoduleTitle,
+			}
+		}
+	}
+	return "empty", nil
+}
+
+func unlockedMap(chain []domain.ChainItem, completed map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(chain))
+	for i, item := range chain {
+		if i == 0 {
+			out[item.SubmoduleID] = true
+			continue
+		}
+		if completed[chain[i-1].SubmoduleID] {
+			out[item.SubmoduleID] = true
+		}
+	}
+	return out
 }
 
 // ListFeedback — история ОС по пользователю.
