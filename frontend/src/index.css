@@ -317,27 +317,24 @@
     #ffffff 100%
   );
   background-size: 220% 220%;
-  animation: soft-wash 18s ease-in-out infinite;
 }
 
 .soft-wash-orb {
-  filter: blur(64px);
-  will-change: transform, opacity;
+  /* Softness from radial stops — CSS blur + motion heated weak devices. */
+  filter: none;
 }
 
 .soft-wash-orb-a {
   background: radial-gradient(circle, rgba(186, 224, 245, 0.7) 0%, transparent 70%);
-  animation: soft-orb-a 22s ease-in-out infinite;
 }
 
 .soft-wash-orb-b {
   background: radial-gradient(circle, rgba(214, 236, 250, 0.8) 0%, transparent 68%);
-  animation: soft-orb-b 26s ease-in-out infinite;
 }
 
 .soft-wash-orb-c {
   background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, transparent 65%);
-  animation: soft-orb-c 20s ease-in-out infinite;
+  display: none;
 }
 
 .brand-glow {
@@ -352,7 +349,6 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: glow-sweep 4s linear infinite;
 }
 
 .md-body h1,
