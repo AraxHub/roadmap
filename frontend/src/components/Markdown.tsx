@@ -99,6 +99,57 @@ function MarkdownImage({ src, alt }: ComponentPropsWithoutRef<'img'>) {
   )
 }
 
+/** Достаёт video id из youtube.com / youtu.be / shorts / embed / live. */
+export function extractYoutubeId(url: string): string | null {
+  try {
+    const u = new URL(url.trim())
+    const host = u.hostname.replace(/^www\./, '')
+    if (host === 'youtu.be') {
+      const id = u.pathname.split('/').filter(Boolean)[0]
+      return id?.split('?')[0] || null
+    }
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+      if (u.pathname === '/watch' || u.pathname.startsWith('/watch')) {
+        return u.searchParams.get('v')
+      }
+      const parts = u.pathname.split('/').filter(Boolean)
+      if (parts[0] === 'embed' || parts[0] === 'shorts' || parts[0] === 'live' || parts[0] === 'v') {
+        return parts[1] || null
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function YouTubeEmbed({ videoId }: { videoId: string }) {
+  return (
+    <div className="youtube-embed">
+      <iframe
+        src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`}
+        title="YouTube video"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        loading="lazy"
+        referrerPolicy="strict-origin-when-cross-origin"
+      />
+    </div>
+  )
+}
+
+function MarkdownLink({ href, children, ...props }: ComponentPropsWithoutRef<'a'>) {
+  const id = href ? extractYoutubeId(href) : null
+  if (id) {
+    return <YouTubeEmbed videoId={id} />
+  }
+  return (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  )
+}
+
 type Segment =
   | { kind: 'md'; text: string }
   | { kind: 'answer'; text: string }
@@ -171,6 +222,7 @@ function MarkdownChunk({ source }: { source: string }) {
       components={{
         code: MarkdownCode,
         img: MarkdownImage,
+        a: MarkdownLink,
       }}
     >
       {source}
