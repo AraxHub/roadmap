@@ -12,5 +12,15 @@ resources:
   - base/ingress.yaml
   - api-configmap.yaml
 
+images:
+  - name: roadmap-api
+    newName: ghcr.io/araxhub/roadmap-api
+    newTag: latest
+  - name: roadmap-frontend
+    newName: ghcr.io/araxhub/roadmap-frontend
+    newTag: latest
+
 patches:
   - path: patch-api-env.yaml
+  - path: patch-api-image.yaml
+  - path: patch-frontend-image.yaml

@@ -60,3 +60,32 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    name: Deploy to VPS
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            SHORT='${{ github.sha }}'
+            SHORT="${SHORT:0:7}"
+            OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+            API_IMG="ghcr.io/${OWNER}/roadmap-api:sha-${SHORT}"
+            FE_IMG="ghcr.io/${OWNER}/roadmap-frontend:sha-${SHORT}"
+            echo "Deploying API=${API_IMG}"
+            echo "Deploying FE=${FE_IMG}"
+            kubectl -n roadmap set image deploy/roadmap-api api="${API_IMG}"
+            kubectl -n roadmap set image deploy/roadmap-frontend frontend="${FE_IMG}"
+            kubectl -n roadmap rollout status deploy/roadmap-api --timeout=180s
+            kubectl -n roadmap rollout status deploy/roadmap-frontend --timeout=180s
+            kubectl -n roadmap get pods -o wide
