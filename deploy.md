@@ -1,16 +1,23 @@
 На VPS из `~/roadmap`:
 
-## GitHub Actions (CI + CD)
+## GitHub Actions (один pipeline)
 
-### Workflows
+Workflow **Pipeline** (`.github/workflows/pipeline.yml`):
 
-- **CI** — PR / push в `main`: тесты и сборка.
-- **Publish images** — push в `main`: сборка → GHCR → **деплой на VPS по SSH** (`kubectl set image` + rollout).
+```
+Test API ──┐
+Test Frontend ──┴─→ Build & push images ──→ Deploy to VPS
+```
+
+- **PR** — только тесты (api + frontend).
+- **push в `main`** / **Run workflow** — тесты → GHCR → деплой на VPS.
 
 Образы:
 
 - `ghcr.io/araxhub/roadmap-api:sha-<7>` / `:latest`
 - `ghcr.io/araxhub/roadmap-frontend:sha-<7>` / `:latest`
+
+На GitHub: **Actions → Pipeline** — один run на коммит, стадии связаны через `needs`.
 
 ### Один раз: secrets в GitHub
 

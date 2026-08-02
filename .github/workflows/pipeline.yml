@@ -1,26 +1,70 @@
-name: Publish images
+name: Pipeline
 
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: publish-images-${{ github.ref }}
+  group: pipeline-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
+  test-api:
+    name: Test API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -o /tmp/roadmap ./cmd/roadmap
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck & build
+        run: npm run build
+
   publish:
-    name: Build & push
+    name: Build & push images
+    needs: [test-api, test-frontend]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - name: api
@@ -63,9 +107,9 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    needs: publish
+    needs: [publish]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.2
@@ -74,7 +118,6 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          script_stop: true
           script: |
             set -euo pipefail
             SHORT='${{ github.sha }}'
