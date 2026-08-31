@@ -7,11 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"roadmap/internal/domain"
 	adminuc "roadmap/internal/usecase/admin"
 	authuc "roadmap/internal/usecase/auth"
 	feedbackuc "roadmap/internal/usecase/feedback"
+
+	"github.com/gin-gonic/gin"
 )
 
 // UsersUC — создание ЛК.
@@ -184,6 +185,10 @@ func (c *Controller) updateFeedbackMessage(ctx *gin.Context) {
 }
 
 func (c *Controller) tree(ctx *gin.Context) {
+
+	ctx.JSON(http.StatusInternalServerError, gin.H{"status": "поломка"})
+	return
+
 	tree, err := c.catalog.Tree(ctx.Request.Context())
 	if err != nil {
 		c.writeErr(ctx, err)
